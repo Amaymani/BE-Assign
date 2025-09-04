@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
 
     await dbConnect();
 
-    // Fetch last 50 trades for the stock, newest first
     const trades = await Trade.find({ stockId })
       .sort({ timestamp: -1 })
       .limit(50)

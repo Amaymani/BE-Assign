@@ -18,7 +18,7 @@ type ExtendedSession = {
 };
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions) as ExtendedSession;
+  const session = (await getServerSession(authOptions)) as ExtendedSession;
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   await dbConnect();
@@ -28,39 +28,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-
   if (!session.user || !session.user.id) {
     return NextResponse.json({ error: "Invalid session user" }, { status: 400 });
   }
+
+  // 1️⃣ Save order to MongoDB
+  const timestamp = Date.now();
   const newOrder = await Order.create({
     userId: session.user.id,
     stockId,
     type,
     quantity,
     price,
+    status: "PENDING",
+    timestamp, // store original timestamp
   });
 
+  // 2️⃣ Add order to Redis
   const key = `stock:${stockId}:${type}`;
-  const timestamp = Date.now();
-
-
   let score: number;
-  if (type === "BUY") {
-
-    score = price * 1e6 - timestamp;
-  } else {
-
-    score = price * 1e6 + timestamp;
-  }
+  if (type === "BUY") score = price * 1e6 - timestamp;
+  else score = price * 1e6 + timestamp;
 
   await redis.zadd(key, score, JSON.stringify({
     orderId: newOrder._id.toString(),
     userId: session.user.id,
     quantity,
     price,
+    timestamp, // save original timestamp
   }));
 
-
+  // 3️⃣ Match orders
   const oppositeKey = type === "BUY" ? `stock:${stockId}:SELL` : `stock:${stockId}:BUY`;
 
   while (true) {
@@ -72,11 +70,13 @@ export async function POST(req: NextRequest) {
     const topBuy = JSON.parse(topBuyRaw[0]);
     const topSell = JSON.parse(topSellRaw[0]);
 
-    if (topBuy.price < topSell.price) break; 
+    if (topBuy.price < topSell.price) break; // no match possible
 
+    // Determine trade quantity
     const tradeQty = Math.min(topBuy.quantity, topSell.quantity);
-    const tradePrice = topSell.price; 
+    const tradePrice = topSell.price;
 
+    // 4️⃣ Save trade in MongoDB
     await Trade.create({
       buyOrderId: topBuy.orderId,
       sellOrderId: topSell.orderId,
@@ -85,24 +85,28 @@ export async function POST(req: NextRequest) {
       price: tradePrice,
     });
 
-
+    // 5️⃣ Update quantities
     topBuy.quantity -= tradeQty;
     topSell.quantity -= tradeQty;
 
-    if (topBuy.quantity <= 0) {
-      await redis.zrem(`stock:${stockId}:BUY`, topBuyRaw[0]);
-      await Order.findByIdAndUpdate(topBuy.orderId, { status: "COMPLETED" });
-    } else {
-      await redis.zadd(`stock:${stockId}:BUY`, price * 1e6 - timestamp, JSON.stringify(topBuy));
+    // Remove or update BUY order
+    await redis.zrem(`stock:${stockId}:BUY`, topBuyRaw[0]);
+    if (topBuy.quantity > 0) {
+      const buyScore = topBuy.price * 1e6 - topBuy.timestamp; // use original timestamp
+      await redis.zadd(`stock:${stockId}:BUY`, buyScore, JSON.stringify(topBuy));
       await Order.findByIdAndUpdate(topBuy.orderId, { quantity: topBuy.quantity, status: "PARTIAL" });
+    } else {
+      await Order.findByIdAndUpdate(topBuy.orderId, { status: "COMPLETED" });
     }
 
-    if (topSell.quantity <= 0) {
-      await redis.zrem(`stock:${stockId}:SELL`, topSellRaw[0]);
-      await Order.findByIdAndUpdate(topSell.orderId, { status: "COMPLETED" });
-    } else {
-      await redis.zadd(`stock:${stockId}:SELL`, price * 1e6 + timestamp, JSON.stringify(topSell));
+    // Remove or update SELL order
+    await redis.zrem(`stock:${stockId}:SELL`, topSellRaw[0]);
+    if (topSell.quantity > 0) {
+      const sellScore = topSell.price * 1e6 + topSell.timestamp; // use original timestamp
+      await redis.zadd(`stock:${stockId}:SELL`, sellScore, JSON.stringify(topSell));
       await Order.findByIdAndUpdate(topSell.orderId, { quantity: topSell.quantity, status: "PARTIAL" });
+    } else {
+      await Order.findByIdAndUpdate(topSell.orderId, { status: "COMPLETED" });
     }
   }
 

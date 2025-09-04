@@ -20,18 +20,17 @@ export const authOptions = {
 
         if (!user) return null;
 
-        // Compare password
+
         const isValid = await import("bcryptjs").then(bcrypt => bcrypt.compare(credentials.password, user.password));
         if (!isValid) return null;
 
 
-        // Return user object (NextAuth will store it in session)
         return { id: user._id.toString(), name: user.name, email: user.email };
       },
     }),
   ],
   session: {
-    strategy: "jwt", // Store session in JWT
+    strategy: "jwt", 
   },
     secret: process.env.NEXTAUTH_SECRET,
     pages:{
