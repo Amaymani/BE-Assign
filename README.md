@@ -70,6 +70,20 @@ yarn install
 
 4. **Ensure MongoDB and Redis are running**.
 
+```bash
+curl -fsSL https://packages.redis.io/gpg | sudo gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/redis.list
+
+sudo apt-get update
+sudo apt-get install redis
+
+wsl
+
+redis-server
+
+```
+
 ---
 
 ## Steps to Run the Project
@@ -89,9 +103,9 @@ yarn dev
 |----------------|--------|------------------------------------|
 | `/api/auth`    | POST   | User login/logout/register (Next-Auth) |
 | `/api/orders`  | POST   | Place BUY/SELL orders and match automatically |
-| `/api/stocks`  | GET    | Fetch stock list                    |
+| `/api/stocks/search`  | GET    | searches the stock from the entire list of stock              |
 | `/api/trades`  | GET    | Retrieve executed trades            |
-
+| `/api/signup`  | POST   | Hashes the password and add user to DB |
 ---
 
 ## Complex Logic / Algorithms
@@ -129,29 +143,62 @@ This ensures **real-time matching** with priority logic.
 - **Redis Expiry**: Consider clearing stale data periodically if needed.
 - **Partial Matching**: Orders can remain in pending state if not fully matched.
 - **Decimal Prices**: Ensure floating point prices are handled correctly in Redis scoring.
-- **Concurrent Orders**: The Redis sorted set allows fast concurrency-safe access, but extreme high-frequency scenarios may require additional locking mechanisms.
+- **Concurrent Orders**: The Redis sorted set allows fast concurrency-safe access.
 
 ---
 
 ## Project Structure
 
 ```
-/app
-  /api
-    /auth/[...nextauth]/route.ts   # Authentication
-    /orders/route.ts                # Place and match orders
-    /stocks/route.ts                # Stock data
-    /trades/route.ts                # Trade history
-/lib
-  mongodb.ts                        # MongoDB connection
-  redis.ts                          # Redis connection
-/models
-  Order.ts                          # Order schema
-  Trade.ts                          # Trade schema
-  Stock.ts                          # Stock schema
-/components
-  PlaceOrder.tsx                    # Frontend order form
-  StockList.tsx                     # Display stock list
+Directory structure:
+└── amaymani-be-assign/
+    ├── README.md
+    ├── next.config.ts
+    ├── package.json
+    ├── postcss.config.mjs
+    ├── tsconfig.json
+    ├── app/
+    │   ├── globals.css
+    │   ├── layout.tsx
+    │   ├── page.tsx
+    │   ├── api/
+    │   │   ├── add-stocks/
+    │   │   │   └── route.ts
+    │   │   ├── auth/
+    │   │   │   └── [...nextauth]/
+    │   │   │       └── route.ts
+    │   │   ├── orders/
+    │   │   │   └── route.ts
+    │   │   ├── signup/
+    │   │   │   └── route.ts
+    │   │   ├── stocks/
+    │   │   │   └── search/
+    │   │   │       └── route.ts
+    │   │   ├── test/
+    │   │   │   └── match/
+    │   │   │       └── route.ts
+    │   │   └── trades/
+    │   │       └── route.ts
+    │   └── login/
+    │       └── page.tsx
+    ├── components/
+    │   ├── PlaceOrder.tsx
+    │   ├── Providers.tsx
+    │   ├── StockSearch.tsx
+    │   └── TradeFeed.tsx
+    ├── lib/
+    │   ├── mongoClient.ts
+    │   ├── mongodb.ts
+    │   ├── redis.ts
+    │   └── stockSearch.ts
+    ├── models/
+    │   ├── Order.ts
+    │   ├── Stock.ts
+    │   ├── Trade.ts
+    │   └── User.ts
+    └── scripts/
+        └── addStocks.ts
+
 ```
 
 ---
